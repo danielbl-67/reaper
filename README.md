@@ -51,10 +51,3 @@ Este proyecto está desarrollado bajo el entorno de ejecución de **Node.js** ut
 ### 1. Requisitos Previos
 
 Asegúrate de tener instalado [Node.js](https://nodejs.org/) (Versión 16.11.0 o superior recomendada) y un gestor de paquetes como `npm`.
-
-### 2. Clonar el repositorio
-
-```bash
-git clone [https://github.com/TU_USUARIO/REAPER-Stats-Bot.git](https://github.com/TU_USUARIO/REAPER-Stats-Bot.git)
-cd REAPER-Stats-Bot
-```
