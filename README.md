@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ChatGPT Image 12 jun 2026, 22_43_48.png" alt="REAPER LOGO" width="300px"/>
+</p>
+
 # 🦖 REAPER | Game Server Stats Bot 🟩
 
 REAPER es un bot de Discord de alto rendimiento diseñado para monitorear y mostrar estadísticas en tiempo real de tus servidores de videojuegos favoritos utilizando únicamente su dirección IP o Dominio. 
@@ -35,6 +39,9 @@ Este proyecto está desarrollado bajo el entorno de ejecución de **Node.js** ut
 * [gamedig](https://github.com/gamedig/node-gamedig) - Motor de consulta de protocolos Query encargado de conectarse con los servidores de juego.
 
 ---
+<p align="center">
+  <img src="ChatGPT Image 12 jun 2026, 22_43_48.png" alt="REAPER CARTEL" width="300px"/>
+</p>
 
 ## 🚀 Instalación y Despliegue
 
@@ -43,5 +50,5 @@ Asegúrate de tener instalado [Node.js](https://nodejs.org/) (Versión 16.11.0 o
 
 ### 2. Clonar el repositorio
 ```bash
-git clone [https://github.com/TU_USUARIO/reaper.git](https://github.com/TU_USUARIO/reaper.git)
-cd reaper
+git clone [https://github.com/TU_USUARIO/REAPER-Stats-Bot.git](https://github.com/TU_USUARIO/REAPER-Stats-Bot.git)
+cd REAPER-Stats-Bot
