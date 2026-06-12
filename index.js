@@ -11,8 +11,8 @@ const {
 const { GameDig } = require('gamedig');
 
 // ================= CONFIGURACIÓN INICIAL =================
-const TOKEN = 'MTUxNTA3MzEwNjc5OTIzMDk5Ng.G3MFao.9dZ7xYh7OAA1EuCQyU9dPNEFKnabkbq5fOBkIU'; 
-const CANAL_ID = '1118586375030190090'; 
+const TOKEN = 'TU_TOKEN_DE_DISCORD_AQUI';// Reemplaza con tu token real 
+const CANAL_ID = '1118586375030190090'; // Reemplaza con el ID real del canal de Discord donde se enviarán los mensajes
 
 let SERVER_CONFIG = {
     type: null,
