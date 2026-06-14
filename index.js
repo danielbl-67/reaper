@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ================= CONFIGURACIÓN SEGURA =================
-const TOKEN = process.env.TOKEN || 'MTUxNTA3MzEwNjc5OTIzMDk5Ng.GkW2ia.CWV5eDeGHByRv4k5Pk-ZCpvylNcQOR-7sXN1qM'; 
+const TOKEN = process.env.TOKEN || ''; 
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 let DATA = {
