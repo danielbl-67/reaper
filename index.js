@@ -12,26 +12,44 @@ const {
     SlashCommandBuilder 
 } = require('discord.js');
 const { GameDig } = require('gamedig');
-const query = require('source-server-query'); // Motor nativo de Steam
+const query = require('source-server-query'); 
 const fs = require('fs');
 const path = require('path');
 
-// ================= CONFIGURACIÓN SEGURA =================
+// ================= CONFIGURACIÓN MAESTRA DE ENTREGAS (RAILWAY) =================
 const TOKEN = process.env.TOKEN; 
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 
+// Inyección prioritaria desde Variables de Entorno para evitar pérdidas por reinicio
 let DATA = {
     canalGestion: null,
     canalEstado: null,
     msgEstadoId: null,
-    server: { type: null, host: null, port: null }
+    server: { 
+        type: process.env.SERVER_TYPE || null, 
+        host: process.env.SERVER_HOST || null, 
+        port: process.env.SERVER_PORT ? parseInt(process.env.SERVER_PORT, 10) : null 
+    }
 };
 
+if (!TOKEN) {
+    console.error("❌ ERROR: Falta la variable 'TOKEN' en Railway.");
+    process.exit(1);
+}
+
+// Carga de respaldo para los canales de Discord enlazados
 if (fs.existsSync(CONFIG_FILE)) {
     try {
-        DATA = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        const configLocal = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        DATA.canalGestion = configLocal.canalGestion;
+        DATA.canalEstado = configLocal.canalEstado;
+        DATA.msgEstadoId = configLocal.msgEstadoId;
+        // Si no se definieron variables de entorno, usa el archivo de respaldo
+        if (!DATA.server.host && configLocal.server) {
+            DATA.server = configLocal.server;
+        }
     } catch (e) {
-        console.error("⚠️ No se pudo leer config.json.");
+        console.error("⚠️ No se pudo leer el archivo de canales.");
     }
 }
 
@@ -54,7 +72,7 @@ client.once('ready', async () => {
             .setName('setup-bot')
             .setDescription('⚙️ Despliega el panel de gestión interna y el canal de estado público.')
             .addChannelOption(option => 
-                option.setName('gestion').setDescription('Canal privado para el Staff (Panel de Control).').setRequired(true))
+                option.setName('gestion').setDescription('Canal privado para el Staff.').setRequired(true))
             .addChannelOption(option => 
                 option.setName('estado').setDescription('Canal público exclusivo para mostrar el estado.').setRequired(true))
     ].map(command => command.toJSON());
@@ -94,7 +112,7 @@ client.on('interactionCreate', async interaction => {
         guardarConfig();
 
         await interaction.reply({
-            content: `✅ ¡Canales enlazados! Generando menú de control en <#${canalGestion.id}>...`,
+            content: `✅ ¡Canales enlazados con éxito! Generando panel de control en <#${canalGestion.id}>...`,
             ephemeral: true
         });
 
@@ -170,7 +188,7 @@ client.on('interactionCreate', async interaction => {
         guardarConfig();
 
         await interaction.reply({
-            content: `✅ ¡Datos guardados! Conectando directamente con el Servidor Maestro de Steam...`,
+            content: `✅ ¡Datos guardados! El monitor actualizará el embed público en unos segundos...`,
             ephemeral: true
         });
 
@@ -180,7 +198,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Función auxiliar para transformar el Callback de Steam en una Promesa real
+
 function consultarSteam(host, port) {
     return new Promise((resolve, reject) => {
         query.info(host, port, 4000, (err, info) => {
@@ -190,7 +208,7 @@ function consultarSteam(host, port) {
     });
 }
 
-// 📊 BUCLE DE MONITOREO DIRECTO (Librería Oficial de Consultas de Steam Corregida)
+// 📊 BUCLE DE MONITOREO DIRECTO (Estabilizado para Nube)
 async function updateServerStatus() {
     if (!DATA.canalEstado) return;
 
@@ -209,8 +227,9 @@ async function updateServerStatus() {
 
         let state = null;
 
+       
         if (DATA.server.type === 'arkse' || DATA.server.type === 'arksa' || DATA.server.type === 'rust') {
-            // MOTOR PRINCIPAL COMPILADO: Sincronización asíncrona real con Valve
+
             try {
                 const infoSteam = await consultarSteam(DATA.server.host, DATA.server.port);
                 
@@ -223,7 +242,7 @@ async function updateServerStatus() {
                     };
                 }
             } catch (errSteam) {
-                // Si el motor asíncrono de Valve falla, ejecutamos el salvavidas de GameDig tradicional
+
                 try {
                     let protocoloJuego = DATA.server.type === 'arksa' ? 'asb' : DATA.server.type;
                     const resGamedig = await GameDig.query({
@@ -240,10 +259,10 @@ async function updateServerStatus() {
                             players: resGamedig.players
                         };
                     }
-                } catch (e) { /* Ambos motores fallaron */ }
+                } catch (e) { /* Fallo general */ }
             }
         } else {
-            // MODO DE RESPALDO TRADICIONAL PARA MINECRAFT (GameDig)
+
             try {
                 state = await GameDig.query({
                     type: DATA.server.type,
@@ -254,7 +273,7 @@ async function updateServerStatus() {
             } catch (e) { /* Minecraft Offline */ }
         }
 
-        // Pintar el Embed Final
+
         if (state) {
             embed.setTitle(`🟢 SERVIDOR ONLINE: ${state.name}`)
                  .setColor(0x2ecc71)
@@ -274,7 +293,7 @@ async function updateServerStatus() {
         } else {
             embed.setTitle('🔴 SERVIDOR OFFLINE o INACCESIBLE')
                  .setColor(0xe74c3c)
-                 .setDescription(`No se ha podido recibir respuesta de los protocolos maestros de Steam.\n\nVerifica que los datos ingresados en el formulario coincidan exactamente con la ventana de información de Steam.`)
+                 .setDescription(`No se ha podido recibir respuesta del servidor.\n\nVerifica que los datos de las variables de entorno de Railway sean correctos.`)
                  .addFields(
                      { name: '🎮 Juego seleccionado', value: `\`${DATA.server.type.toUpperCase()}\``, inline: true },
                      { name: '🌐 IP y Puerto Query', value: `\`${DATA.server.host}:${DATA.server.port}\``, inline: true }
