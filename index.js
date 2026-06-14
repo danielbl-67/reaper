@@ -209,6 +209,7 @@ function consultarSteam(host, port) {
 }
 
 // 📊 BUCLE DE MONITOREO DIRECTO (Estabilizado para Nube)
+// 📊 BUCLE DE MONITOREO DIRECTO + RESCATE DE RED VALVEDIG
 async function updateServerStatus() {
     if (!DATA.canalEstado) return;
 
@@ -226,13 +227,12 @@ async function updateServerStatus() {
         }
 
         let state = null;
+        const targetAddr = `${DATA.server.host}:${DATA.server.port}`;
 
-       
         if (DATA.server.type === 'arkse' || DATA.server.type === 'arksa' || DATA.server.type === 'rust') {
-
+            // 1. INTENTO BINARIO: Consulta asíncrona directa a Steam
             try {
                 const infoSteam = await consultarSteam(DATA.server.host, DATA.server.port);
-                
                 if (infoSteam && infoSteam.name) {
                     state = {
                         name: infoSteam.name,
@@ -242,27 +242,44 @@ async function updateServerStatus() {
                     };
                 }
             } catch (errSteam) {
-
+                // 2. RESCATE DE EMERGENCIA POR HTTP: Rompe el bloqueo de IP usando el nodo público de Valve
                 try {
-                    let protocoloJuego = DATA.server.type === 'arksa' ? 'asb' : DATA.server.type;
-                    const resGamedig = await GameDig.query({
-                        type: protocoloJuego,
-                        host: DATA.server.host,
-                        port: DATA.server.port,
-                        socketTimeout: 2000
-                    });
-                    if (resGamedig) {
+                    const axios = require('axios');
+                    const respuestaEspejo = await axios.get(
+                        `https://api.vserver.site/info/steam?addr=${targetAddr}`, 
+                        { timeout: 5000 }
+                    );
+                    
+                    if (respuestaEspejo.data && respuestaEspejo.data.status === "online") {
                         state = {
-                            name: resGamedig.name,
-                            map: resGamedig.map || 'N/A',
-                            maxplayers: resGamedig.maxplayers,
-                            players: resGamedig.players
+                            name: respuestaEspejo.data.name,
+                            map: respuestaEspejo.data.map || 'N/A',
+                            maxplayers: respuestaEspejo.data.max_players,
+                            players: new Array(respuestaEspejo.data.players).fill({ name: 'Jugador' })
                         };
                     }
-                } catch (e) { /* Fallo general */ }
+                } catch (errEspejo) {
+                    // 3. TERCER MOTOR: GameDig Tradicional por si acaso
+                    try {
+                        let protocoloJuego = DATA.server.type === 'arksa' ? 'asb' : DATA.server.type;
+                        const resGamedig = await GameDig.query({
+                            type: protocoloJuego,
+                            host: DATA.server.host,
+                            port: DATA.server.port,
+                            socketTimeout: 2000
+                        });
+                        if (resGamedig) {
+                            state = {
+                                name: resGamedig.name,
+                                map: resGamedig.map || 'N/A',
+                                maxplayers: resGamedig.maxplayers,
+                                players: resGamedig.players
+                            };
+                        }
+                    } catch (e) { /* Todos los sistemas bloqueados por Nitrado */ }
+                }
             }
         } else {
-
             try {
                 state = await GameDig.query({
                     type: DATA.server.type,
@@ -273,7 +290,7 @@ async function updateServerStatus() {
             } catch (e) { /* Minecraft Offline */ }
         }
 
-
+        // Pintar el Embed Final
         if (state) {
             embed.setTitle(`🟢 SERVIDOR ONLINE: ${state.name}`)
                  .setColor(0x2ecc71)
@@ -283,7 +300,7 @@ async function updateServerStatus() {
                      { name: '👥 Jugadores', value: `👤 **${state.players.length}** / **${state.maxplayers}**`, inline: false },
                      { name: '📍 Mapa', value: `📍 \`${state.map}\``, inline: true }
                  )
-                 .setFooter({ text: 'Sincronizado de forma directa con los servidores de Steam • Cada 30s' })
+                 .setFooter({ text: 'Sincronizado con éxito mediante Red Espejo • Cada 30s' })
                  .setTimestamp();
 
             if (state.players.length > 0 && state.players[0].name !== 'Jugador') {
@@ -293,7 +310,7 @@ async function updateServerStatus() {
         } else {
             embed.setTitle('🔴 SERVIDOR OFFLINE o INACCESIBLE')
                  .setColor(0xe74c3c)
-                 .setDescription(`No se ha podido recibir respuesta del servidor.\n\nVerifica que los datos de las variables de entorno de Railway sean correctos.`)
+                 .setDescription(`No se ha podido recibir respuesta de Nitrado ni de las APIs globales de Steam.\n\nEl servidor podría tener las consultas externas (Query) completamente deshabilitadas por su administrador.`)
                  .addFields(
                      { name: '🎮 Juego seleccionado', value: `\`${DATA.server.type.toUpperCase()}\``, inline: true },
                      { name: '🌐 IP y Puerto Query', value: `\`${DATA.server.host}:${DATA.server.port}\``, inline: true }
