@@ -6,70 +6,154 @@ const {
     StringSelectMenuBuilder, 
     ModalBuilder, 
     TextInputBuilder, 
-    TextInputStyle
+    TextInputStyle,
+    REST, 
+    Routes, 
+    SlashCommandBuilder 
 } = require('discord.js');
 const { GameDig } = require('gamedig');
+const query = require('source-server-query'); // Motor nativo de Steam
+const fs = require('fs');
+const path = require('path');
 
-// ================= CONFIGURACIÓN INICIAL =================
-const TOKEN = 'TU_TOKEN_DE_DISCORD_AQUI';// Reemplaza con tu token real 
-const CANAL_ID = '1118586375030190090'; // Reemplaza con el ID real del canal de Discord donde se enviarán los mensajes
+// ================= CONFIGURACIÓN SEGURA =================
+const TOKEN = process.env.TOKEN || 'MTUxNTA3MzEwNjc5OTIzMDk5Ng.GkW2ia.CWV5eDeGHByRv4k5Pk-ZCpvylNcQOR-7sXN1qM'; 
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 
-let SERVER_CONFIG = {
-    type: null,
-    host: null,
-    port: null
+let DATA = {
+    canalGestion: null,
+    canalEstado: null,
+    msgEstadoId: null,
+    server: { type: null, host: null, port: null }
 };
-// =========================================================
+
+if (fs.existsSync(CONFIG_FILE)) {
+    try {
+        DATA = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    } catch (e) {
+        console.error("⚠️ No se pudo leer config.json.");
+    }
+}
+
+function guardarConfig() {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(DATA, null, 4), 'utf-8');
+}
+// =================================================================================
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
-let messageRef = null; 
 let updateInterval = null;
 
-client.once('clientReady', () => {
-    console.log(`🟢 Bot conectado con éxito como: ${client.user.tag}`);
-    console.log('✨ Interfaz visual con menú desplegable lista.');
-    updateServerStatus();
+client.once('ready', async () => {
+    console.log(`🟢 Bot online como: ${client.user.tag}`);
+    
+    const commands = [
+        new SlashCommandBuilder()
+            .setName('setup-bot')
+            .setDescription('⚙️ Despliega el panel de gestión interna y el canal de estado público.')
+            .addChannelOption(option => 
+                option.setName('gestion').setDescription('Canal privado para el Staff (Panel de Control).').setRequired(true))
+            .addChannelOption(option => 
+                option.setName('estado').setDescription('Canal público exclusivo para mostrar el estado.').setRequired(true))
+    ].map(command => command.toJSON());
+
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+    try {
+        console.log('🔄 Sincronizando comandos limpios...');
+        const guilds = await client.guilds.fetch();
+        for (const [guildId] of guilds) {
+            await rest.put(
+                Routes.applicationGuildCommands(client.user.id, guildId), 
+                { body: commands }
+            );
+        }
+        console.log('✅ Sistema de comandos listo.');
+    } catch (error) {
+        console.error('❌ Error cargando comando:', error);
+    }
+
+    if (DATA.server && DATA.server.host) {
+        updateInterval = setInterval(updateServerStatus, 30000);
+        updateServerStatus();
+    }
 });
 
-// 🔄 ESCUCHAR LAS INTERACCIONES DE LA INTERFAZ
+// 🔄 MANEJADOR DE INTERACCIONES
 client.on('interactionCreate', async interaction => {
     
-    // 1. Cuando el usuario selecciona un juego en el desplegable
+    if (interaction.isChatInputCommand() && interaction.commandName === 'setup-bot') {
+        const canalGestion = interaction.options.getChannel('gestion');
+        const canalEstado = interaction.options.getChannel('estado');
+
+        DATA.canalGestion = canalGestion.id;
+        DATA.canalEstado = canalEstado.id;
+        DATA.msgEstadoId = null; 
+        guardarConfig();
+
+        await interaction.reply({
+            content: `✅ ¡Canales enlazados! Generando menú de control en <#${canalGestion.id}>...`,
+            ephemeral: true
+        });
+
+        const embedStaff = new EmbedBuilder()
+            .setTitle('🛠️ PANEL DE CONFIGURACIÓN DEL STAFF')
+            .setDescription('Usa el menú desplegable de este mensaje para cambiar de juego o editar la IP/Puerto en tiempo real.')
+            .setColor(0x2f3136);
+
+        const selectorJuegos = new StringSelectMenuBuilder()
+            .setCustomId('seleccionar_juego')
+            .setPlaceholder('👉 Selecciona el juego para rellenar sus datos')
+            .addOptions(
+                { label: 'Ark: Survival Ascended (ASA)', value: 'arksa', description: 'Monitoreo directo por protocolo Steam', emoji: '🦖' },
+                { label: 'Ark: Survival Evolved (ASE)', value: 'arkse', description: 'Monitoreo directo por protocolo Steam', emoji: '🦕' },
+                { label: 'Minecraft (Java)', value: 'minecraft', description: 'Servidores de Minecraft PC', emoji: '🟩' },
+                { label: 'Minecraft (Bedrock)', value: 'minecraftbe', description: 'Servidores PE/Consolas', emoji: '📱' },
+                { label: 'Rust', value: 'rust', description: 'Monitoreo directo por protocolo Steam', emoji: '🔧' }
+            );
+
+        const filaComponentes = new ActionRowBuilder().addComponents(selectorJuegos);
+        await canalGestion.send({ embeds: [embedStaff], components: [filaComponentes] });
+
+        updateServerStatus();
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === 'seleccionar_juego') {
         const juegoSeleccionado = interaction.values[0];
 
-        // Crear la ventana emergente (Modal) para pedir IP y Puerto
         const modal = new ModalBuilder()
             .setCustomId(`modal_config_${juegoSeleccionado}`)
-            .setTitle(`Configurar ${juegoSeleccionado.toUpperCase()}`);
+            .setTitle(`CONFIGURAR JUEGO: ${juegoSeleccionado.toUpperCase()}`);
 
         const ipInput = new TextInputBuilder()
             .setCustomId('input_ip')
-            .setLabel('Dirección IP o Dominio del Servidor')
-            .setPlaceholder('Ej: 5.62.116.129 o mc.mi-servidor.com')
+            .setLabel('Dirección IP (Sin el puerto)')
+            .setPlaceholder('Ej: 176.86.44.97')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
 
         const puertoInput = new TextInputBuilder()
             .setCustomId('input_puerto')
             .setLabel('Puerto Query / Consulta')
-            .setPlaceholder('Ej: 27015 para Ark, 25565 para Minecraft')
+            .setPlaceholder('Ej: 8787')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
+
+        if (DATA.server && DATA.server.type === juegoSeleccionado && DATA.server.host) {
+            ipInput.setValue(DATA.server.host);
+            puertoInput.setValue(DATA.server.port.toString());
+        }
 
         modal.addComponents(
             new ActionRowBuilder().addComponents(ipInput),
             new ActionRowBuilder().addComponents(puertoInput)
         );
 
-        // Mostrar la ventana emergente al usuario
-        await interaction.showModal(modal);
+        return await interaction.showModal(modal);
     }
 
-    // 2. Cuando el usuario envía el formulario de la ventana emergente
     if (interaction.isModalSubmit() && interaction.customId.startsWith('modal_config_')) {
         const juego = interaction.customId.replace('modal_config_', '');
         const ip = interaction.fields.getTextInputValue('input_ip').trim();
@@ -77,110 +161,149 @@ client.on('interactionCreate', async interaction => {
         const puerto = parseInt(puertoStr, 10);
 
         if (isNaN(puerto)) {
-            return await interaction.reply({ 
-                content: '⚠️ El puerto debe ser un número válido.', 
-                ephemeral: true 
-            });
+            return await interaction.reply({ content: '⚠️ Error: El puerto ingresado debe ser un número.', ephemeral: true });
         }
 
-        // Guardar la configuración en caliente
-        SERVER_CONFIG.type = juego;
-        SERVER_CONFIG.host = ip;
-        SERVER_CONFIG.port = puerto;
+        DATA.server.type = juego;
+        DATA.server.host = ip;
+        DATA.server.port = puerto;
+        guardarConfig();
 
-        await interaction.reply({ 
-            content: `✅ ¡Datos aplicados! Conectando al servidor de ${juego.toUpperCase()}...`, 
-            ephemeral: true 
+        await interaction.reply({
+            content: `✅ ¡Datos guardados! Conectando directamente con el Servidor Maestro de Steam...`,
+            ephemeral: true
         });
 
-        // Activar el bucle de actualización
         if (updateInterval) clearInterval(updateInterval);
         updateInterval = setInterval(updateServerStatus, 30000);
         updateServerStatus();
     }
 });
 
+// Función auxiliar para transformar el Callback de Steam en una Promesa real
+function consultarSteam(host, port) {
+    return new Promise((resolve, reject) => {
+        query.info(host, port, 4000, (err, info) => {
+            if (err) return reject(err);
+            resolve(info);
+        });
+    });
+}
+
+// 📊 BUCLE DE MONITOREO DIRECTO (Librería Oficial de Consultas de Steam Corregida)
 async function updateServerStatus() {
+    if (!DATA.canalEstado) return;
+
     try {
-        const channel = await client.channels.fetch(CANAL_ID);
-        if (!channel) return console.error("❌ No se encontró el canal de Discord.");
+        const channel = await client.channels.fetch(DATA.canalEstado);
+        if (!channel) return;
 
         let embed = new EmbedBuilder();
 
-        // MENÚ DESPLEGABLE INTERACTIVO (Estructura visual)
-        const selectorJuegos = new StringSelectMenuBuilder()
-            .setCustomId('seleccionar_juego')
-            .setPlaceholder('👉 Selecciona aquí el juego que quieres monitorear')
-            .addOptions(
-                { label: 'Ark: Survival Evolved', value: 'arkse', description: 'Monitorear un servidor de Ark', emoji: '🦖' },
-                { label: 'Minecraft (Java)', value: 'minecraft', description: 'Servidores de PC de Minecraft', emoji: '🟩' },
-                { label: 'Minecraft (Bedrock/Móvil)', value: 'minecraftbe', description: 'Servidores de celular o consola', emoji: '📱' },
-                { label: 'Rust', value: 'rust', description: 'Servidores de Rust', emoji: '🔧' }
-            );
-
-        const filaComponentes = new ActionRowBuilder().addComponents(selectorJuegos);
-
-        // 🔵 CASO EN BLANCO: Esperando configuración
-        if (!SERVER_CONFIG.host) {
-            embed.setTitle('🔵 PANEL DE CONTROL EN ESPERA')
+        if (!DATA.server.host) {
+            embed.setTitle('🔵 PANEL EN ESPERA')
                  .setColor(0x3498db)
-                 .setDescription('Utiliza el menú desplegable que tienes aquí abajo para configurar el servidor de juegos en tiempo real.')
-                 .setFooter({ text: 'Listo para recibir configuración' })
-                 .setTimestamp();
-
-            return await enviarOEditar(channel, embed, filaComponentes);
+                 .setDescription('Esperando parámetros en el canal de administración del Staff.');
+            return await enviarOEditar(channel, embed);
         }
 
-        // 🟢 / 🔴 CASO CON DATOS: Buscar servidor de juegos
-        try {
-            const state = await GameDig.query({
-                type: SERVER_CONFIG.type,
-                host: SERVER_CONFIG.host,
-                port: SERVER_CONFIG.port,
-                socketTimeout: 5000
-            });
+        let state = null;
 
+        if (DATA.server.type === 'arkse' || DATA.server.type === 'arksa' || DATA.server.type === 'rust') {
+            // MOTOR PRINCIPAL COMPILADO: Sincronización asíncrona real con Valve
+            try {
+                const infoSteam = await consultarSteam(DATA.server.host, DATA.server.port);
+                
+                if (infoSteam && infoSteam.name) {
+                    state = {
+                        name: infoSteam.name,
+                        map: infoSteam.map || 'N/A',
+                        maxplayers: infoSteam.maxplayers,
+                        players: new Array(infoSteam.players).fill({ name: 'Jugador' })
+                    };
+                }
+            } catch (errSteam) {
+                // Si el motor asíncrono de Valve falla, ejecutamos el salvavidas de GameDig tradicional
+                try {
+                    let protocoloJuego = DATA.server.type === 'arksa' ? 'asb' : DATA.server.type;
+                    const resGamedig = await GameDig.query({
+                        type: protocoloJuego,
+                        host: DATA.server.host,
+                        port: DATA.server.port,
+                        socketTimeout: 2000
+                    });
+                    if (resGamedig) {
+                        state = {
+                            name: resGamedig.name,
+                            map: resGamedig.map || 'N/A',
+                            maxplayers: resGamedig.maxplayers,
+                            players: resGamedig.players
+                        };
+                    }
+                } catch (e) { /* Ambos motores fallaron */ }
+            }
+        } else {
+            // MODO DE RESPALDO TRADICIONAL PARA MINECRAFT (GameDig)
+            try {
+                state = await GameDig.query({
+                    type: DATA.server.type,
+                    host: DATA.server.host,
+                    port: DATA.server.port,
+                    socketTimeout: 4000
+                });
+            } catch (e) { /* Minecraft Offline */ }
+        }
+
+        // Pintar el Embed Final
+        if (state) {
             embed.setTitle(`🟢 SERVIDOR ONLINE: ${state.name}`)
                  .setColor(0x2ecc71)
                  .addFields(
-                     { name: '🎮 Juego', value: `\`${SERVER_CONFIG.type.toUpperCase()}\``, inline: true },
-                     { name: '🌐 Dirección IP', value: `\`${SERVER_CONFIG.host}:${SERVER_CONFIG.port}\``, inline: true },
+                     { name: '🎮 Juego', value: `\`${DATA.server.type.toUpperCase()}\``, inline: true },
+                     { name: '🌐 Dirección IP', value: `\`${DATA.server.host}:${DATA.server.port}\``, inline: true },
                      { name: '👥 Jugadores', value: `👤 **${state.players.length}** / **${state.maxplayers}**`, inline: false },
-                     { name: '🗺️ Mapa', value: `📍 ${state.map || 'N/A'}`, inline: true }
+                     { name: '📍 Mapa', value: `📍 \`${state.map}\``, inline: true }
                  )
-                 .setFooter({ text: 'Actualiza cada 30s • Cambia de juego abajo' })
+                 .setFooter({ text: 'Sincronizado de forma directa con los servidores de Steam • Cada 30s' })
                  .setTimestamp();
 
-            if (state.players.length > 0) {
+            if (state.players.length > 0 && state.players[0].name !== 'Jugador') {
                 const listaJugadores = state.players.map(p => p.name).join(', ');
-                embed.addFields({ name: '🎮 En línea actualmente:', value: listaJugadores.length > 1024 ? listaJugadores.substring(0, 1021) + '...' : listaJugadores });
+                embed.addFields({ name: '🎮 Jugadores Conectados:', value: listaJugadores.length > 1024 ? listaJugadores.substring(0, 1021) + '...' : listaJugadores });
             }
-
-        } catch (error) {
-            embed.setTitle('🔴 SERVIDOR OFFLINE O DATOS ERRÓNEOS')
+        } else {
+            embed.setTitle('🔴 SERVIDOR OFFLINE o INACCESIBLE')
                  .setColor(0xe74c3c)
-                 .setDescription(`No se ha podido conectar con el servidor utilizando estos datos actuales:`)
+                 .setDescription(`No se ha podido recibir respuesta de los protocolos maestros de Steam.\n\nVerifica que los datos ingresados en el formulario coincidan exactamente con la ventana de información de Steam.`)
                  .addFields(
-                     { name: '🎮 Juego intentado', value: `\`${SERVER_CONFIG.type.toUpperCase()}\``, inline: true },
-                     { name: '🌐 IP e Info', value: `\`${SERVER_CONFIG.host}:${SERVER_CONFIG.port}\``, inline: true }
+                     { name: '🎮 Juego seleccionado', value: `\`${DATA.server.type.toUpperCase()}\``, inline: true },
+                     { name: '🌐 IP y Puerto Query', value: `\`${DATA.server.host}:${DATA.server.port}\``, inline: true }
                  )
-                 .setFooter({ text: 'Reintentando cada 30s • Puedes corregirlo abajo' })
+                 .setFooter({ text: 'Reintentando cada 30s' })
                  .setTimestamp();
         }
 
-        await enviarOEditar(channel, embed, filaComponentes);
+        await enviarOEditar(channel, embed);
 
     } catch (err) {
-        console.error('Error crítico en el bucle:', err);
+        console.error('Error en el bucle principal:', err);
     }
 }
 
-// Función auxiliar para enviar o editar el mensaje
-async function enviarOEditar(channel, embed, componentes) {
-    if (!messageRef) {
-        messageRef = await channel.send({ embeds: [embed], components: [componentes] });
+async function enviarOEditar(channel, embed) {
+    if (!DATA.msgEstadoId) {
+        const nuevoMensaje = await channel.send({ embeds: [embed] });
+        DATA.msgEstadoId = nuevoMensaje.id;
+        guardarConfig();
     } else {
-        await messageRef.edit({ embeds: [embed], components: [componentes] });
+        try {
+            const mensajeExistente = await channel.messages.fetch(DATA.msgEstadoId);
+            await mensajeExistente.edit({ embeds: [embed], components: [] }); 
+        } catch (error) {
+            const nuevoMensaje = await channel.send({ embeds: [embed] });
+            DATA.msgEstadoId = nuevoMensaje.id;
+            guardarConfig();
+        }
     }
 }
 

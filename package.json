@@ -11,7 +11,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "axios": "^1.17.0",
     "discord.js": "^14.26.4",
-    "gamedig": "^5.3.3"
+    "gamedig": "^5.3.3",
+    "source-server-query": "^3.0.3"
   }
 }
