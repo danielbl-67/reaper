@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ================= CONFIGURACIÓN SEGURA =================
-const TOKEN = process.env.TOKEN || 'TOKEN_DEL_BOT'; 
+const TOKEN = process.env.TOKEN; 
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 let DATA = {
